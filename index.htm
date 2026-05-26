@@ -1053,7 +1053,7 @@ function buildAllPanel() {
   toggleRow.innerHTML=`
     <button id="btn_allYearly" class="btn btn-sm btn-primary" onclick="switchAllChart('yearly')">연도별</button>
     <button id="btn_allMonthly" class="btn btn-sm" onclick="switchAllChart('monthly')">월별</button>
-    <button id="btn_allStack" class="btn btn-sm" onclick="switchAllChart('stack')">계좌별 누적</button>
+    <button id="btn_allStack" class="btn btn-sm" onclick="switchAllChart('stack')">평가액 vs 수익금</button>
   `;
   chartSec.appendChild(toggleRow);
 
@@ -1416,67 +1416,82 @@ function switchAllChart(mode) {
       [{label:'전체 평가액', data:pts.map(p=>p.value), backgroundColor:'rgba(29,158,117,0.65)', borderColor:'#1D9E75', borderWidth:1, borderRadius:3}],
       titleEl, '월별 전체 평가액');
   } else if(mode==='stack') {
-    // 연도별 라벨 기준으로 계좌별 평가액(스택) + 합산 수익금(라인) 복합 차트
     const yearPts = getYearlyData(allAccIds);
     const labels = yearPts.map(p=>p.label);
 
-    // 계좌별 평가액 스택 bars
-    const barDatasets = state.accounts.map((a,i)=>{
-      const color=ACCOUNT_COLORS[i%ACCOUNT_COLORS.length];
-      const data = labels.map(lbl=>{
-        const y = parseInt(lbl);
-        if(!a.data[y]) return null;
-        for(let m=12;m>=1;m--){
-          const d=a.data[y][m];
-          if(d&&d.eval_!==undefined&&d.eval_!=='') return parseFloat(d.eval_)||0;
-        }
-        return null;
-      });
-      return {type:'bar', label:a.name+'(평가액)', data, backgroundColor:color+'88', borderColor:color, borderWidth:1, borderRadius:3, stack:'eval', yAxisID:'y'};
-    });
+    // 전체 평가액 라인
+    const evalData = yearPts.map(p=>p.value);
 
-    // 누적 수익금 라인 (2019년부터 쌓이는 총합)
+    // 누적 수익금 라인
     let cumProfit = 0;
     const profitData = labels.map(lbl=>{
       const y=parseInt(lbl);
       let yearTotal=0, hasAny=false;
       state.accounts.forEach(a=>{
-        const p=calcYearProfit(a.id, y);
+        const p=calcYearProfit(a.id,y);
         if(p!==null){yearTotal+=p; hasAny=true;}
       });
       if(!hasAny) return null;
-      cumProfit += yearTotal;
+      cumProfit+=yearTotal;
       return cumProfit;
     });
-    const profitDataset = {
-      type:'line', label:'누적 수익금', data:profitData,
-      borderColor:'#F59E0B', backgroundColor:'rgba(245,158,11,0.15)',
-      borderWidth:2, pointRadius:4, pointBackgroundColor:'#F59E0B',
-      fill:false, tension:0.3, yAxisID:'y2', order:0
-    };
 
     if(charts['chart_all_main']){try{charts['chart_all_main'].destroy();}catch(e){} delete charts['chart_all_main'];}
     const canvas=document.getElementById('chart_all_main'); if(!canvas) return;
-    if(titleEl) titleEl.innerHTML=`<i class="ti ti-chart-bar" aria-hidden="true"></i> 계좌별 누적 평가액 + 누적 수익금`;
+    if(titleEl) titleEl.innerHTML=`<i class="ti ti-chart-line" aria-hidden="true"></i> 전체 평가액 vs 누적 수익금`;
+
     charts['chart_all_main']=new Chart(canvas,{
-      data:{labels, datasets:[...barDatasets, profitDataset]},
+      type:'line',
+      data:{
+        labels,
+        datasets:[
+          {
+            label:'전체 평가액',
+            data:evalData,
+            borderColor:'#1D9E75',
+            backgroundColor:'rgba(29,158,117,0.08)',
+            borderWidth:2.5,
+            pointRadius:5,
+            pointBackgroundColor:'#1D9E75',
+            fill:true,
+            tension:0.3,
+          },
+          {
+            label:'누적 수익금',
+            data:profitData,
+            borderColor:'#F59E0B',
+            backgroundColor:'rgba(245,158,11,0.08)',
+            borderWidth:2.5,
+            pointRadius:5,
+            pointBackgroundColor:'#F59E0B',
+            fill:true,
+            tension:0.3,
+          }
+        ]
+      },
       options:{
         responsive:true, maintainAspectRatio:false,
         interaction:{mode:'index',intersect:false},
         plugins:{
-          legend:{display:true, labels:{font:{size:11},boxWidth:10,padding:10}},
-          tooltip:{callbacks:{
-            label:(ctx)=>`${ctx.dataset.label}: ${fmtWShort(ctx.parsed.y)}`,
-            footer:(items)=>{
-              const barSum=items.filter(i=>i.dataset.type==='bar').reduce((s,i)=>s+(i.parsed.y||0),0);
-              return barSum>0?`평가액 합계: ${fmtWShort(barSum)}`:'';
+          legend:{display:true, labels:{font:{size:12},boxWidth:12,padding:16}},
+          tooltip:{
+            callbacks:{
+              label:(ctx)=>`${ctx.dataset.label}: ${fmtWShort(ctx.parsed.y)}`,
+              afterBody:(items)=>{
+                const ev=items.find(i=>i.dataset.label==='전체 평가액');
+                const pr=items.find(i=>i.dataset.label==='누적 수익금');
+                if(ev&&pr&&ev.parsed.y>0){
+                  const pct=(pr.parsed.y/ev.parsed.y*100).toFixed(1);
+                  return [`수익금 비중: ${pct}%`, `투자 원금: ${fmtWShort(ev.parsed.y-pr.parsed.y)}`];
+                }
+                return [];
+              }
             }
-          }}
+          }
         },
         scales:{
-          x:{stacked:true, ticks:{font:{size:10},color:'#888'},grid:{color:'rgba(128,128,128,0.07)'}},
-          y:{stacked:true, position:'left', ticks:{font:{size:10},color:'#888',callback:v=>fmtWShort(v)}, grid:{color:'rgba(128,128,128,0.07)'}, title:{display:true,text:'평가액',font:{size:10},color:'#888'}},
-          y2:{stacked:false, position:'right', ticks:{font:{size:10},color:'#F59E0B',callback:v=>fmtWShort(v)}, grid:{drawOnChartArea:false}, title:{display:true,text:'수익금',font:{size:10},color:'#F59E0B'}}
+          x:{ticks:{font:{size:10},color:'#888'},grid:{color:'rgba(128,128,128,0.07)'}},
+          y:{ticks:{font:{size:11},color:'#888',callback:v=>fmtWShort(v)},grid:{color:'rgba(128,128,128,0.07)'}}
         }
       }
     });
