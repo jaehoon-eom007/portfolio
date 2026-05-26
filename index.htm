@@ -1435,18 +1435,21 @@ function switchAllChart(mode) {
       return {type:'bar', label:a.name+'(평가액)', data, backgroundColor:color+'88', borderColor:color, borderWidth:1, borderRadius:3, stack:'eval', yAxisID:'y'};
     });
 
-    // 합산 수익금 라인
+    // 누적 수익금 라인 (2019년부터 쌓이는 총합)
+    let cumProfit = 0;
     const profitData = labels.map(lbl=>{
       const y=parseInt(lbl);
-      let total=0, hasAny=false;
+      let yearTotal=0, hasAny=false;
       state.accounts.forEach(a=>{
         const p=calcYearProfit(a.id, y);
-        if(p!==null){total+=p; hasAny=true;}
+        if(p!==null){yearTotal+=p; hasAny=true;}
       });
-      return hasAny?total:null;
+      if(!hasAny) return null;
+      cumProfit += yearTotal;
+      return cumProfit;
     });
     const profitDataset = {
-      type:'line', label:'합산 수익금', data:profitData,
+      type:'line', label:'누적 수익금', data:profitData,
       borderColor:'#F59E0B', backgroundColor:'rgba(245,158,11,0.15)',
       borderWidth:2, pointRadius:4, pointBackgroundColor:'#F59E0B',
       fill:false, tension:0.3, yAxisID:'y2', order:0
@@ -1454,7 +1457,7 @@ function switchAllChart(mode) {
 
     if(charts['chart_all_main']){try{charts['chart_all_main'].destroy();}catch(e){} delete charts['chart_all_main'];}
     const canvas=document.getElementById('chart_all_main'); if(!canvas) return;
-    if(titleEl) titleEl.innerHTML=`<i class="ti ti-chart-bar" aria-hidden="true"></i> 계좌별 누적 평가액 + 수익금`;
+    if(titleEl) titleEl.innerHTML=`<i class="ti ti-chart-bar" aria-hidden="true"></i> 계좌별 누적 평가액 + 누적 수익금`;
     charts['chart_all_main']=new Chart(canvas,{
       data:{labels, datasets:[...barDatasets, profitDataset]},
       options:{
